@@ -85,7 +85,11 @@ struct workPlaces  {
 }workPlaces;
 
 
-
+struct community {
+	unsigned long long 		id;	// ID
+	int 		type;		// type of community 	
+	int 		hasInfected;	// If there is an infected currently present
+}community;
 
 struct entity *adultAgents;  /*list of all data adults on host */
 
