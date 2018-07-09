@@ -245,121 +245,85 @@ __device__ float inline calculatePointDistance(int x1, int y1, int x2, int y2, i
 
 
 //pass day
-__global__ void kernel_calculate_contact_process(  unsigned long long  *d_infected_individuals,   struct entity *d_adultAgents, struct houseHold *d_houseHolds, struct workPlaces *d_workPlaces ) {
+__global__ void kernel_calculate_contact_process(  unsigned long long  *d_infected_individuals,   struct entity *d_adultAgents, struct houseHold *d_houseHolds, struct workPlaces *d_workPlaces, int simulationDay) {
     
     const unsigned int tid =  threadIdx.x + (blockIdx.x*blockDim.x);
     
     int weekDayStatus;
-    int simulationDay;
     int currentHour;
     float check_rand;
     register double cur_lambda=0;
-    //move to main
-    for (simulationDay=1; simulationDay <=2; simulationDay ++){
+    
+    if (simulationDay%7==0 || simulationDay%7==0){
+        weekDayStatus=0;
+    } else{
+        weekDayStatus=1;
+    }
+    cur_lambda=0;
+    
+    
+    for (currentHour =0; currentHour <24; currentHour ++){
         
-        
-        if (simulationDay%7==0 || simulationDay%7==0){
-            weekDayStatus=0;
-        } else{
-            weekDayStatus=1;
-        }
-        cur_lambda=0;
-        
-        
-        for (currentHour =0; currentHour <24; currentHour ++){
+        if (d_adultAgents[tid].status==0) {
             
-            if (d_adultAgents[tid].status==0) {
+           // float total_distance =0;
+            int j;
+            
+            
+            //adults are at home on weekday or weekends
+            if  ( ( (weekDayStatus == 1) && (( currentHour>= 19 &&   currentHour<24) || ( currentHour>= 0 &&   currentHour< 8)) ) ||  ( (weekDayStatus == 0) && (( currentHour>= 0 &&   currentHour<17) || ( currentHour>= 19 &&   currentHour< 24)) ) ){
+                unsigned long long  houseid =d_adultAgents[tid].householdId;
                 
-               // float total_distance =0;
-                int j;
+                for (j = 0; j < numberOfInfected; j++){
+                    //call the function for d_adultAgents[tid].id va infectedid
+                    if (d_adultAgents[d_infected_individuals[j]].householdId == houseid){
+                        
+                        cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) )* (1 + d_adultAgents[d_infected_individuals[j]].severity) ) / (pow((double)d_houseHolds[houseid].type, 0.8)));
+                        
+                        
+                    }
+                }
                 
                 
-                //adults are at home on weekday or weekends
-                if  ( ( (weekDayStatus == 1) && (( currentHour>= 19 &&   currentHour<24) || ( currentHour>= 0 &&   currentHour< 8)) ) ||  ( (weekDayStatus == 0) && (( currentHour>= 0 &&   currentHour<17) || ( currentHour>= 19 &&   currentHour< 24)) ) ){
-                    unsigned long long  houseid =d_adultAgents[tid].householdId;
-                    
-                    for (j = 0; j < numberOfInfected; j++){
+            }
+            
+            //adults are at work or school
+            else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
+                
+                unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
+                
+                for (j = 0; j < numberOfInfected; j++){
+                    if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
                         //call the function for d_adultAgents[tid].id va infectedid
-                        if (d_adultAgents[d_infected_individuals[j]].householdId == houseid){
-                            
-                            cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) )* (1 + d_adultAgents[d_infected_individuals[j]].severity) ) / (pow((double)d_houseHolds[houseid].type, 0.8)));
-                            
-                            
+                        if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
+                            cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
                         }
                     }
-                    
-                    
-                }
-                
-                //adults are at work or school
-                else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
-                    
-                    unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
-                    
-                    for (j = 0; j < numberOfInfected; j++){
-                        if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
-                            //call the function for d_adultAgents[tid].id va infectedid
-                            if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
-                                cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
-                            }
-                        }
-                    }
-                    
-                    
-                    
-                }
-                
-                //adults on weekdays errand
-                else if ( currentHour>= 17 &&   currentHour<19  ){
-                    
-                    
-                    float current_distance =0 ;
-                    
-                    for (j = 0; j < numberOfInfected; j++){
-             
-                        current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
-                        if ( fabs(current_distance - 2.000000) < EPSILON ){
-                            cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
-                        }
-                        
-                     
-                       
-                        
-                    }
-                    
-                    
-                    
-                    
                 }
                 
                 
                 
             }
-        }
-         //todo add alpha
-        
-        
-        if (d_adultAgents[tid].status==0) {
             
-            
-            cur_lambda = (1- exp (- cur_lambda)) ;
-            
-            curandState_t state;
-            curand_init(0, /* the seed controls the sequence of random values that are produced */
-                        tid, /* the sequence number is only important with multiple cores */
-                        0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
-                        &state);
-            check_rand = curand_uniform(&state) ;
-            
-            bool check =fabs(cur_lambda - check_rand) < EPSILON;
-            if (check==true) {
-                d_adultAgents[tid].status=1;
-                d_adultAgents[tid].infectedDay= simulationDay;
-                d_adultAgents[tid].severity = 1;
-                 //d_adultAgents[tid].severity = curand(&state) % 2;
+            //adults on weekdays errand
+            else if ( currentHour>= 17 &&   currentHour<19  ){
                 
-                unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
-                d_infected_individuals[my_idx] = d_adultAgents[tid].id;
+                
+                float current_distance =0 ;
+                
+                for (j = 0; j < numberOfInfected; j++){
+         
+                    current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
+                    if ( fabs(current_distance - 2.000000) < EPSILON ){
+                        cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
+                    }
+                    
+                 
+                   
+                    
+                }
+                
+                
                 
                 
             }
@@ -368,8 +332,38 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             
         }
     }
-    __syncthreads();
+     //todo add alpha
     
+    
+    if (d_adultAgents[tid].status==0) {
+        
+        
+        cur_lambda = (1- exp (- cur_lambda)) ;
+        
+        curandState_t state;
+        curand_init(0, /* the seed controls the sequence of random values that are produced */
+                    tid, /* the sequence number is only important with multiple cores */
+                    0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
+                    &state);
+        check_rand = curand_uniform(&state) ;
+        
+        bool check =fabs(cur_lambda - check_rand) < EPSILON;
+        if (check==true) {
+            d_adultAgents[tid].status=1;
+            d_adultAgents[tid].infectedDay= simulationDay;
+            d_adultAgents[tid].severity = 1;
+             //d_adultAgents[tid].severity = curand(&state) % 2;
+            
+            unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
+            d_infected_individuals[my_idx] = d_adultAgents[tid].id;
+            
+            
+        }
+        
+        
+        
+    }
+__syncthreads();
     
 }
 
@@ -507,12 +501,15 @@ int main(int argc, const char * argv[])
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start, 0);
+    int simulationDay;
     
     
     printf( "******** call the contact process ***** \n");
     //calclate force of infection
     //should be run for each day of simulation
-    kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,   d_adultAgents, d_houseHolds, d_workPlaces);
+    for (simulationDay=1; simulationDay <=2; simulationDay ++){
+    	kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,   d_adultAgents, d_houseHolds, d_workPlaces, simulationDay);
+    }
     
     gpuErrchk(cudaDeviceSynchronize());
     
