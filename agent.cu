@@ -548,7 +548,7 @@ int main(int argc, const char * argv[])
     //calclate force of infection
     //should be run for each day of simulation
     for (simulationDay=1; simulationDay <=2; simulationDay ++){
-    kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,   d_adultAgents, d_houseHolds, d_workPlaces);
+    kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,   d_adultAgents, d_houseHolds, d_workPlaces, simulationDay);
     }
 
     gpuErrchk(cudaDeviceSynchronize());
