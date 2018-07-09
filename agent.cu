@@ -30,6 +30,7 @@ __device__ __constant__ float     travel_rate;
 __device__ __constant__ float     ind_inf;        //relative infectiousness of an individual
 __device__ __constant__ int       mild_infect;    //mild infection rate w
 
+
 #define BLOCK_SIZE 1024    /*size of block for division*/
 
 
@@ -84,12 +85,14 @@ struct workPlaces  {
     int         hasInfected;            //if there is an infected in this place
 }workPlaces;
 
-
+// this struct may be unnecessary
 struct community {
 	unsigned long long 		id;	// ID
 	int 		type;		// type of community 	
 	int 		hasInfected;	// If there is an infected currently present
 }community;
+
+
 
 struct entity *adultAgents;  /*list of all data adults on host */
 
@@ -100,6 +103,7 @@ unsigned long long 		max_number_adult;
 unsigned long long        max_number_households ;
 unsigned long long       max_number_workplaces ;
 unsigned long long       max_region_population;
+unsigned long long 		total_infected;
 //long long       max_number_schools = 128;
 struct houseHold *d_houseHolds;
 struct workPlaces *d_workPlaces;
@@ -291,7 +295,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 
             }
             
-            //adults are at work or school
+            //adults are at work or school 8am-5pm
             else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
                 
                 unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
@@ -309,7 +313,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 
             }
             
-            //adults on weekdays errand
+            //adults on weekdays errand -- community events 5-7pm
             else if ( currentHour>= 17 &&   currentHour<19  ){
                 
                 
