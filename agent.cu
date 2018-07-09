@@ -103,7 +103,6 @@ unsigned long long 		max_number_adult;
 unsigned long long        max_number_households ;
 unsigned long long       max_number_workplaces ;
 unsigned long long       max_region_population;
-unsigned long long 		total_infected;
 //long long       max_number_schools = 128;
 struct houseHold *d_houseHolds;
 struct workPlaces *d_workPlaces;
