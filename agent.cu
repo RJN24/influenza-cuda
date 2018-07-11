@@ -56,9 +56,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 struct entity
 {
 	// Individual attributes
-	unsigned long long 	id;							// Unique # for each person in the community
+    unsigned long long 	id;			// Unique # for each person in the community
     int     status;
-    int		age;						// Age of the individual: 0 for kid, 1 for adult, 2 for old
+    int		age;					// Age of the individual: 0-7 basedon age group in input data
     long	householdId;			// ID number of its associated household
     long    workPlaceId;
     int     infectedDay;
@@ -124,6 +124,8 @@ void output_to_file(struct day myday)
 
   // write the appropriate data from the struct to file
   // INSERT HERE WHEN VARIABLE NAMES ARE KNOWN
+
+  fclose(myfile);
 }
 
 
@@ -162,13 +164,13 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             d_adultAgents[aId].status=0;
             d_adultAgents[aId].householdId=tid;
 
-            d_adultAgents[aId].age=23;
+            d_adultAgents[aId].age=23; // this is overwritten in the main update kernel
             d_adultAgents[aId].infectedDay=0;
             d_adultAgents[aId].severity=0;
             d_adultAgents[aId].x_pos =xpos;
             d_adultAgents[aId].y_pos =ypos;
 
-            //todo add travel rate
+            //todo add travel rate NOTE - this is added in the main update kernel
             //   d_adultAgents[aId].travel_rate=;
 
 
@@ -217,7 +219,7 @@ __global__ void kernel_generate_workplace(int numberofEmployee, struct entity *d
 
 
 // initializes the original 9 infected people.
-// change to regular CPU function and load this data onto GPU
+// this is only done on one thread...
 __global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5,  unsigned long long  id6,  unsigned long long  id7,  unsigned long long  id8,  unsigned long long  id9, struct entity *d_adultAgents){
 
     d_adultAgents[id0].severity=1;
@@ -276,17 +278,39 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
     // if we are on day 1 set the age of our agent
     if( simulationDay == 1 ){
-        // set the first 12% to kids
-        if( tid / max_n < 12.0 ){
+        // set the age of the agent based on the proportions given in the input data
+        if( tid / max_n < 0.06 ){
             d_adultAgents[tid].age = 0;
+            d_adultAgents[tid].travel_rate = 0.0;
         }
-        // set last 5% to elderly
-        else if( tid / max_n > 95.0 ){
-            d_adultAgents[tid].age = 2;
-        }
-        // set remaining to adults
-        else{
+        else if( tid / max_n < 0.12 ){
             d_adultAgents[tid].age = 1;
+            d_adultAgents[tid].travel_rate = 0.25;
+        }
+        else if( tid / max_n < 0.18 ){
+            d_adultAgents[tid].age = 2;
+            d_adultAgents[tid].travel_rate = 0.50;
+        }
+        else if( tid / max_n < 0.21 ){
+            d_adultAgents[tid].age = 3;
+            d_adultAgents[tid].travel_rate = 0.75;
+        }
+        else if( tid / max_n < 0.31 ){
+            d_adultAgents[tid].age = 4;
+            d_adultAgents[tid].travel_rate = 0.75;
+        }
+        else if( tid / max_n < 0.42 ){
+            d_adultAgents[tid].age = 5;
+            d_adultAgents[tid].travel_rate = 1.0;
+        }
+        else if( tid / max_n < 0.86 ){
+            d_adultAgents[tid].age = 6;
+            d_adultAgents[tid].travel_rate = 1.0;
+        }
+        // set remaining to > 65 years old
+        else{
+            d_adultAgents[tid].age = 7;
+            d_adultAgents[tid].travel_rate = 0.75;
         }
     }
     else if (simulationDay%7==0 || simulationDay%7==0){
@@ -392,7 +416,8 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
         }
     }
-     //todo add alpha
+    // here is the alpha variable.
+    float alpha = 0.8;
 
 
     if (d_adultAgents[tid].status==0) {
