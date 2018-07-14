@@ -89,7 +89,14 @@ struct community {
 	int 		hasInfected;	// If there is an infected currently present
 }community;
 
-
+// struct for day list
+typedef struct list_day_node {
+    struct                  list_day_node *next;
+    unsigned long long      simulationDay;
+    unsigned long long      numInfectedDuringDay;
+    unsigned long long      totalNumInfectedAtEndOfDay;
+    //int                     dayOfTheWeek;
+}day_node;
 
 struct entity *adultAgents;  /*list of all data adults on host */
 struct entity *d_adultAgents;   /*list of all data adults on device */
@@ -114,18 +121,12 @@ const string o_file_name = "daily-output.txt";
 
 /* this function is used to write the changes that have happened in one day
 to file. Including the number of newly infected... */
-void output_to_file(struct day myday)
+void output_to_file(FILE myfile, struct list_day_node myday)
 {
-  // file opening and error checking
-  FILE *myfile = fopen(o_file_name, "a");
-  if( !myfile ){
-    return;
-  }
-
   // write the appropriate data from the struct to file
-  // INSERT HERE WHEN VARIABLE NAMES ARE KNOWN
-
-  fclose(myfile);
+  fprintf(myfile, "Day %lld\n", myday.simulationDay);
+  fprintf(myfile, "People infected on this day: %lld\n", myday.numInfectedDuringDay);
+  fprintf(myfile, "Total number of infected on this day: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
 }
 
 
@@ -473,7 +474,6 @@ int main(int argc, const char * argv[])
     unsigned long long h_numberOfInfected=0;
     int num_infected=10;
 
-
     printf( "start allocation \n" );
 
     adultAgents = (struct entity *)malloc(sizeof(struct entity)*max_number_adult);
@@ -482,6 +482,9 @@ int main(int argc, const char * argv[])
 
     infected_individuals = (unsigned long long  *) malloc(sizeof(unsigned long long )*max_number_adult);
     memset(infected_individuals, 0,  (sizeof(unsigned long long )*max_number_adult) );
+
+    // set up our day update list
+    
 
     printf( "start allocation on device \n" );
 
@@ -615,6 +618,19 @@ int main(int argc, const char * argv[])
     printf("the number of infected copied back %llu \n", h_numberOfInfected);
 
 
+    // set up our output FILE
+    // file opening and error checking
+    FILE *myfile = fopen(o_file_name, "w+"); // erases/creates the file
+    if( !myfile ){
+      printf("Error opening output file.\n");
+    }
+    else{
+        fprintf(myfile, "Starting day by day output of simulation!\n\n");
+        for(int i=0; i<simulationDay; i++){
+            output_to_file(myfile,dayUpdateList[i]);
+        }
+    }
+    fclose(myfile);
 
     /* Clean up memory */
 
