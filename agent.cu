@@ -101,7 +101,9 @@ typedef struct list_day_node {
 struct entity *adultAgents;  /*list of all data adults on host */
 struct entity *d_adultAgents;   /*list of all data adults on device */
 struct entity *d_childAgents;   /*list of all data children on device */
+struct list_day_node *dayUpdateList; /*list of all the daily update info*/
 
+unsigned long long      max_number_days;
 unsigned long long 		max_number_adult;
 unsigned long long      max_number_households ;
 unsigned long long      max_number_workplaces ;
@@ -110,7 +112,7 @@ unsigned long long      max_region_population;
 struct houseHold *d_houseHolds;
 struct workPlaces *d_workPlaces;
 struct school *d_schools;
-
+struct list_day_node *d_dayUpdateList;
 
 unsigned long long  *d_infected_individuals;
 unsigned long long  *infected_individuals;
@@ -455,13 +457,16 @@ __syncthreads();
 
 int main(int argc, const char * argv[])
 {
-    if( argc < 2 )
+    if( argc < 3 )
     {
-      printf("Error: No max_number_adult specified on command line.\n");
+      printf("Error: command line arguments.\n");
       return 1;
     }
 
     max_number_adult = atoi(argv[1]);
+    max_number_days = atoi(argv[2]);
+    if( max_number_days <= 0)
+        max_number_days = 1;
     max_number_households = max_number_adult/5;
     // max_number_workplaces=max_number_adult/100;
 
@@ -484,11 +489,9 @@ int main(int argc, const char * argv[])
     memset(infected_individuals, 0,  (sizeof(unsigned long long )*max_number_adult) );
 
     // set up our day update list
-    
+    dayUpdateList = (struct list_day_node*)malloc(sizeof(struct list_day_node)*max_number_days);
 
     printf( "start allocation on device \n" );
-
-
 
     cudaMalloc((void **) &d_adultAgents, sizeof(struct entity)*max_number_adult );
 
@@ -496,6 +499,9 @@ int main(int argc, const char * argv[])
     cudaMalloc((void **) &d_workPlaces, sizeof(struct workPlaces ) * max_number_workplaces);
 
     cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long  ) * ( max_number_adult));
+
+    // allocate the dayUpdateList on GPU
+    cudaMalloc((void **) &d_dayUpdateList, sizeof(struct list_day_node)*max_number_days);
 
     printf( "finish allocation \n" );
 
@@ -617,6 +623,8 @@ int main(int argc, const char * argv[])
     // cudaMemcpy(&h_numberOfInfected, numberOfInfected, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
     printf("the number of infected copied back %llu \n", h_numberOfInfected);
 
+    // copy the day list back to cpu
+    cudaMemcpy(dayUpdateList, d_dayUpdateList, sizeof(struct list_day_node)*max_number_days, cudaMemcpyDeviceToHost);
 
     // set up our output FILE
     // file opening and error checking
