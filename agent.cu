@@ -275,7 +275,7 @@ __device__ float inline calculatePointDistance(int x1, int y1, int x2, int y2, i
 
 __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infected_individuals,
     struct entity *d_adultAgents, struct houseHold *d_houseHolds,
-    struct workPlaces *d_workPlaces, int simulationDay, unsigned long long max_n ) {
+    struct workPlaces *d_workPlaces, int simulationDay, unsigned long long max_n) {
 
     const unsigned int tid =  threadIdx.x + (blockIdx.x*blockDim.x);
 
@@ -391,7 +391,8 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     //float alpha = 0.8;
 
 
-    if (d_adultAgents[tid].status==0 && d_adultAgents[tid].beenInfected != 1) {
+    // only applies to people who are not infected nor ever have been
+    if (d_adultAgents[tid].status==0 && !d_adultAgents[tid].beenInfected ) {
 
 
         cur_lambda = (1- exp (- cur_lambda)) ;
@@ -409,7 +410,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             d_adultAgents[tid].infectedDay= simulationDay;
             d_adultAgents[tid].severity = 1;
             d_adultAgents[tid].timer = 0;
-            d_adultAgents[tid].beenInfected=1;
+            d_adultAgents[tid].beenInfected=true;
 
             unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
             d_infected_individuals[my_idx] = d_adultAgents[tid].id;
@@ -417,10 +418,19 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
         }
 
 
-
-
-    } else if (d_adultAgents[tid].status == 1) {
-
+    // if a person is infected and still alive, increment its timer
+    // if it has been 7 days, the person has a 38.6% chance to die
+    // status is set to 0 whether they live or die 
+    } else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
+        d_adultAgents[tid].timer++;
+        if (d_adultAgents[tid].timer == 7) {
+            d_adultAgents[tid].status = 0;
+            curandState_t state;
+            curand_init((unsigned long long)clock() + tid, 0, 0, &state)
+            double result = curand_uniform_double(&state) % 100; 
+            if (result < 38.61) {
+                d_adultAgents[tid].alive = false;
+        }
     }
 __syncthreads();
 
@@ -576,7 +586,7 @@ int main(int argc, const char * argv[])
     //should be run for each day of simulation
     for (simulationDay=1; simulationDay <=2; simulationDay ++){
     kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,
-        d_adultAgents, d_houseHolds, d_workPlaces, simulationDay, max_number_adult);
+        d_adultAgents, d_houseHolds, d_workPlaces, simulationDay, max_number_adult;
     }
 
     gpuErrchk(cudaDeviceSynchronize());
