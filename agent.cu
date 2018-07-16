@@ -419,20 +419,24 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
             atomicAdd(daily_list[simulationDay].numInfectedDuringDay,1);
         }
+    }
 
 
     // if a person is infected and still alive, increment its timer
     // if it has been 7 days, the person has a 38.6% chance to die
-    // status is set to 0 whether they live or die 
-    } else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
+    // status is set to 0 whether they live or die
+    else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
         d_adultAgents[tid].timer++;
         if (d_adultAgents[tid].timer == 7) {
             d_adultAgents[tid].status = 0;
             curandState_t state;
             curand_init((unsigned long long)clock() + tid, 0, 0, &state)
-            double result = curand_uniform_double(&state) % 100; 
+            double result = curand_uniform_double(&state) % 100;
             if (result < 38.61) {
                 d_adultAgents[tid].alive = false;
+                // increment the number of deaths that have occured
+                atomicAdd(daily_list[simulationDay].numDeathsDuringDay,1);
+            }
         }
     }
 
@@ -441,15 +445,21 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
     __syncthreads();
 
-    // now set the total number of infected
+    // now set the total number of infected/deaths
     if( simulationDay > 1 && tid == 0){ // run this only once
         unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
             daily_list[simulationDay].numInfectedDuringDay;
         atomicAdd(daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
+        unsigned long long tempDeaths = daily_list[simulationDay-1].totalDeathsAtEndOfDay +
+            daily_list[simulationDay].numDeathsDuringDay;
+        atomicAdd(daily_list[simulationDay].totalDeathsAtEndOfDay,tempDeaths);
     }
     else if(tid == 0){ // run this only once
         daily_list[simulationDay].totalNumInfectedAtEndOfDay = daily_list[simulationDay].numInfectedDuringDay;
+        daily_list[simulationDay].totalDeathsAtEndOfDay = daily_list[simulationDay].numDeathsDuringDay;
     }
+
+    __syncthreads();
 
 }
 
