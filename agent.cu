@@ -1,4 +1,3 @@
-
 // one kernel implementation
 #include <unistd.h>
 #include <stdio.h>
@@ -89,12 +88,21 @@ struct community {
 	int 		hasInfected;	// If there is an infected currently present
 }community;
 
-
+// struct for day list
+typedef struct list_day_node {
+    struct                  list_day_node *next;
+    unsigned long long      simulationDay;
+    unsigned long long      numInfectedDuringDay;
+    unsigned long long      totalNumInfectedAtEndOfDay;
+    //int                     dayOfTheWeek;
+}day_node;
 
 struct entity *adultAgents;  /*list of all data adults on host */
 struct entity *d_adultAgents;   /*list of all data adults on device */
 struct entity *d_childAgents;   /*list of all data children on device */
+struct list_day_node *dayUpdateList; /*list of all the daily update info*/
 
+unsigned long long      max_number_days;
 unsigned long long 		max_number_adult;
 unsigned long long      max_number_households ;
 unsigned long long      max_number_workplaces ;
@@ -103,7 +111,7 @@ unsigned long long      max_region_population;
 struct houseHold *d_houseHolds;
 struct workPlaces *d_workPlaces;
 struct school *d_schools;
-
+struct list_day_node *d_dayUpdateList;
 
 unsigned long long  *d_infected_individuals;
 unsigned long long  *infected_individuals;
@@ -114,18 +122,12 @@ const string o_file_name = "daily-output.txt";
 
 /* this function is used to write the changes that have happened in one day
 to file. Including the number of newly infected... */
-void output_to_file(struct day myday)
+void output_to_file(FILE myfile, struct list_day_node myday)
 {
-  // file opening and error checking
-  FILE *myfile = fopen(o_file_name, "a");
-  if( !myfile ){
-    return;
-  }
-
   // write the appropriate data from the struct to file
-  // INSERT HERE WHEN VARIABLE NAMES ARE KNOWN
-
-  fclose(myfile);
+  fprintf(myfile, "Day %lld\n", myday.simulationDay);
+  fprintf(myfile, "People infected on this day: %lld\n", myday.numInfectedDuringDay);
+  fprintf(myfile, "Total number of infected on this day: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
 }
 
 
@@ -454,13 +456,16 @@ __syncthreads();
 
 int main(int argc, const char * argv[])
 {
-    if( argc < 2 )
+    if( argc < 3 )
     {
-      printf("Error: No max_number_adult specified on command line.\n");
+      printf("Error: command line arguments.\n");
       return 1;
     }
 
     max_number_adult = atoi(argv[1]);
+    max_number_days = atoi(argv[2]);
+    if( max_number_days <= 0)
+        max_number_days = 1;
     max_number_households = max_number_adult/5;
     // max_number_workplaces=max_number_adult/100;
 
@@ -473,7 +478,6 @@ int main(int argc, const char * argv[])
     unsigned long long h_numberOfInfected=0;
     int num_infected=10;
 
-
     printf( "start allocation \n" );
 
     adultAgents = (struct entity *)malloc(sizeof(struct entity)*max_number_adult);
@@ -483,9 +487,10 @@ int main(int argc, const char * argv[])
     infected_individuals = (unsigned long long  *) malloc(sizeof(unsigned long long )*max_number_adult);
     memset(infected_individuals, 0,  (sizeof(unsigned long long )*max_number_adult) );
 
+    // set up our day update list
+    dayUpdateList = (struct list_day_node*)malloc(sizeof(struct list_day_node)*max_number_days);
+
     printf( "start allocation on device \n" );
-
-
 
     cudaMalloc((void **) &d_adultAgents, sizeof(struct entity)*max_number_adult );
 
@@ -493,6 +498,9 @@ int main(int argc, const char * argv[])
     cudaMalloc((void **) &d_workPlaces, sizeof(struct workPlaces ) * max_number_workplaces);
 
     cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long  ) * ( max_number_adult));
+
+    // allocate the dayUpdateList on GPU
+    cudaMalloc((void **) &d_dayUpdateList, sizeof(struct list_day_node)*max_number_days);
 
     printf( "finish allocation \n" );
 
@@ -614,7 +622,22 @@ int main(int argc, const char * argv[])
     // cudaMemcpy(&h_numberOfInfected, numberOfInfected, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
     printf("the number of infected copied back %llu \n", h_numberOfInfected);
 
+    // copy the day list back to cpu
+    cudaMemcpy(dayUpdateList, d_dayUpdateList, sizeof(struct list_day_node)*max_number_days, cudaMemcpyDeviceToHost);
 
+    // set up our output FILE
+    // file opening and error checking
+    FILE *myfile = fopen(o_file_name, "w+"); // erases/creates the file
+    if( !myfile ){
+      printf("Error opening output file.\n");
+    }
+    else{
+        fprintf(myfile, "Starting day by day output of simulation!\n\n");
+        for(int i=0; i<simulationDay; i++){
+            output_to_file(myfile,dayUpdateList[i]);
+        }
+    }
+    fclose(myfile);
 
     /* Clean up memory */
 
@@ -630,3 +653,4 @@ int main(int argc, const char * argv[])
 
     return 0;
 }
+			
