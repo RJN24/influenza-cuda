@@ -275,43 +275,6 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     float check_rand;
     register double cur_lambda=0;
 
-    // if we are on day 1 set the age of our agent
-    // if( simulationDay == 1 ){
-    //     // set the age of the agent based on the proportions given in the input data
-    //     if( tid / max_n < 0.06 ){
-    //         d_adultAgents[tid].age = 0;
-    //         d_adultAgents[tid].travel_rate = 0.0;
-    //     }
-    //     else if( tid / max_n < 0.12 ){
-    //         d_adultAgents[tid].age = 1;
-    //         d_adultAgents[tid].travel_rate = 0.25;
-    //     }
-    //     else if( tid / max_n < 0.18 ){
-    //         d_adultAgents[tid].age = 2;
-    //         d_adultAgents[tid].travel_rate = 0.50;
-    //     }
-    //     else if( tid / max_n < 0.21 ){
-    //         d_adultAgents[tid].age = 3;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    //     else if( tid / max_n < 0.31 ){
-    //         d_adultAgents[tid].age = 4;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    //     else if( tid / max_n < 0.42 ){
-    //         d_adultAgents[tid].age = 5;
-    //         d_adultAgents[tid].travel_rate = 1.0;
-    //     }
-    //     else if( tid / max_n < 0.86 ){
-    //         d_adultAgents[tid].age = 6;
-    //         d_adultAgents[tid].travel_rate = 1.0;
-    //     }
-    //     // set remaining to > 65 years old
-    //     else{
-    //         d_adultAgents[tid].age = 7;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    // }
     if (simulationDay%7==0 || simulationDay%7==0){
         weekDayStatus=0;
     }
