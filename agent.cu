@@ -98,6 +98,8 @@ typedef struct list_day_node {
     unsigned long long      simulationDay;
     unsigned long long      numInfectedDuringDay;
     unsigned long long      totalNumInfectedAtEndOfDay;
+    unsigned long long      numDeathsDuringDay;
+    unsigned long long      totalDeathsAtEndOfDay;
     //int                     dayOfTheWeek;
 }day_node;
 
@@ -275,7 +277,7 @@ __device__ float inline calculatePointDistance(int x1, int y1, int x2, int y2, i
 
 __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infected_individuals,
     struct entity *d_adultAgents, struct houseHold *d_houseHolds,
-    struct workPlaces *d_workPlaces, int simulationDay, unsigned long long max_n) {
+    struct workPlaces *d_workPlaces, int simulationDay, unsigned long long max_n, struct list_day_node* daily_list ) {
 
     const unsigned int tid =  threadIdx.x + (blockIdx.x*blockDim.x);
 
@@ -415,6 +417,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
             d_infected_individuals[my_idx] = d_adultAgents[tid].id;
 
+            atomicAdd(daily_list[simulationDay].numInfectedDuringDay,1);
         }
 
 
@@ -432,8 +435,21 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 d_adultAgents[tid].alive = false;
         }
     }
-__syncthreads();
 
+    // set the day number in the daily output struct
+    daily_list[simulationDay].simulationDay = simulationDay;
+
+    __syncthreads();
+
+    // now set the total number of infected
+    if( simulationDay > 1 && tid == 0){ // run this only once
+        unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
+            daily_list[simulationDay].numInfectedDuringDay;
+        atomicAdd(daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
+    }
+    else if(tid == 0){ // run this only once
+        daily_list[simulationDay].totalNumInfectedAtEndOfDay = daily_list[simulationDay].numInfectedDuringDay;
+    }
 
 }
 
@@ -586,7 +602,7 @@ int main(int argc, const char * argv[])
     //should be run for each day of simulation
     for (simulationDay=1; simulationDay <=2; simulationDay ++){
     kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,
-        d_adultAgents, d_houseHolds, d_workPlaces, simulationDay, max_number_adult;
+        d_adultAgents, d_houseHolds, d_workPlaces, simulationDay, max_number_adult, d_dayUpdateList);
     }
 
     gpuErrchk(cudaDeviceSynchronize());
