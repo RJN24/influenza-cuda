@@ -66,6 +66,9 @@ struct entity
     int     y_pos;
     int     severity;
     float   travel_rate;
+    bool    beenInfected;
+    int     timer;
+    bool    alive;
 } entity;
 
 
@@ -170,6 +173,8 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             d_adultAgents[aId].age=23;
             d_adultAgents[aId].infectedDay=0;
             d_adultAgents[aId].severity=0;
+            d_adultAgents[aId].beenInfected=false;
+            d_adultAgents[aId].alive=true;
             d_adultAgents[aId].x_pos =xpos;
             d_adultAgents[aId].y_pos =ypos;
             d_adultAgents[aId].travel_rate = 1.0;
@@ -217,41 +222,45 @@ __global__ void kernel_generate_workplace(int numberofEmployee, struct entity *d
 
 
 
-// initializes the original 9 infected people.
+// initializes the original 6 infected people.
 // this is only done on one thread...
 __global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5,  unsigned long long  id6,  unsigned long long  id7,  unsigned long long  id8,  unsigned long long  id9, struct entity *d_adultAgents){
-
     d_adultAgents[id0].severity=1;
     d_adultAgents[id0].status=1;
     d_adultAgents[id0].infectedDay=0;
-    d_adultAgents[id1].severity=0;
+    d_adultAgents[id0].timer=0;
+    d_adultAgents[id0].beenInfected=true;
+    d_adultAgents[id0].alive=true;
+    d_adultAgents[id1].severity=1;
     d_adultAgents[id1].status=1;
     d_adultAgents[id1].infectedDay=0;
+    d_adultAgents[id1].timer=0;
+    d_adultAgents[id1].beenInfected=true;
+    d_adultAgents[id1].alive=true;
     d_adultAgents[id2].severity=1;
     d_adultAgents[id2].status=1;
     d_adultAgents[id2].infectedDay=0;
-    d_adultAgents[id3].severity=0;
+    d_adultAgents[id2].timer=0;
+    d_adultAgents[id2].beenInfected=true;
+    d_adultAgents[id2].alive=true;
+    d_adultAgents[id3].severity=1;
     d_adultAgents[id3].status=1;
     d_adultAgents[id3].infectedDay=0;
-    d_adultAgents[id4].severity=0;
+    d_adultAgents[id3].timer=0;
+    d_adultAgents[id3].beenInfected=true;
+    d_adultAgents[id3].alive=true;
+    d_adultAgents[id4].severity=1;
     d_adultAgents[id4].status=1;
     d_adultAgents[id4].infectedDay=0;
+    d_adultAgents[id4].timer=0;
+    d_adultAgents[id4].beenInfected=true;
+    d_adultAgents[id4].alive=true;
     d_adultAgents[id5].severity=1;
     d_adultAgents[id5].status=1;
     d_adultAgents[id5].infectedDay=0;
-    d_adultAgents[id6].severity=1;
-    d_adultAgents[id6].status=1;
-    d_adultAgents[id6].infectedDay=0;
-    d_adultAgents[id7].severity=1;
-    d_adultAgents[id7].status=1;
-    d_adultAgents[id7].infectedDay=0;
-    d_adultAgents[id8].severity=0;
-    d_adultAgents[id8].status=1;
-    d_adultAgents[id8].infectedDay=0;
-    d_adultAgents[id9].severity=1;
-    d_adultAgents[id9].status=1;
-    d_adultAgents[id9].infectedDay=0;
-
+    d_adultAgents[id5].timer=0;
+    d_adultAgents[id5].beenInfected=true;
+    d_adultAgents[id5].alive=true;
 
 }
 
@@ -275,43 +284,6 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     float check_rand;
     register double cur_lambda=0;
 
-    // if we are on day 1 set the age of our agent
-    // if( simulationDay == 1 ){
-    //     // set the age of the agent based on the proportions given in the input data
-    //     if( tid / max_n < 0.06 ){
-    //         d_adultAgents[tid].age = 0;
-    //         d_adultAgents[tid].travel_rate = 0.0;
-    //     }
-    //     else if( tid / max_n < 0.12 ){
-    //         d_adultAgents[tid].age = 1;
-    //         d_adultAgents[tid].travel_rate = 0.25;
-    //     }
-    //     else if( tid / max_n < 0.18 ){
-    //         d_adultAgents[tid].age = 2;
-    //         d_adultAgents[tid].travel_rate = 0.50;
-    //     }
-    //     else if( tid / max_n < 0.21 ){
-    //         d_adultAgents[tid].age = 3;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    //     else if( tid / max_n < 0.31 ){
-    //         d_adultAgents[tid].age = 4;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    //     else if( tid / max_n < 0.42 ){
-    //         d_adultAgents[tid].age = 5;
-    //         d_adultAgents[tid].travel_rate = 1.0;
-    //     }
-    //     else if( tid / max_n < 0.86 ){
-    //         d_adultAgents[tid].age = 6;
-    //         d_adultAgents[tid].travel_rate = 1.0;
-    //     }
-    //     // set remaining to > 65 years old
-    //     else{
-    //         d_adultAgents[tid].age = 7;
-    //         d_adultAgents[tid].travel_rate = 0.75;
-    //     }
-    // }
     if (simulationDay%7==0 || simulationDay%7==0){
         weekDayStatus=0;
     }
@@ -419,7 +391,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     //float alpha = 0.8;
 
 
-    if (d_adultAgents[tid].status==0) {
+    if (d_adultAgents[tid].status==0 && d_adultAgents[tid].beenInfected != 1) {
 
 
         cur_lambda = (1- exp (- cur_lambda)) ;
@@ -436,15 +408,18 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             d_adultAgents[tid].status=1;
             d_adultAgents[tid].infectedDay= simulationDay;
             d_adultAgents[tid].severity = 1;
-             //d_adultAgents[tid].severity = curand(&state) % 2;
+            d_adultAgents[tid].timer = 0;
+            d_adultAgents[tid].beenInfected=1;
 
             unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
             d_infected_individuals[my_idx] = d_adultAgents[tid].id;
 
-
         }
 
 
+
+
+    } else if (d_adultAgents[tid].status == 1) {
 
     }
 __syncthreads();
@@ -459,7 +434,7 @@ int main(int argc, const char * argv[])
 {
     if( argc < 3 )
     {
-      printf("Error: command line arguments.\n");
+      printf("Usage: ./a.out <number of adults> <number of days>\n");
       return 1;
     }
 
