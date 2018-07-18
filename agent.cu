@@ -124,11 +124,11 @@ unsigned long long  *infected_individuals;
 
 __device__ unsigned long long  numberOfInfected=9 ;
 
-const string o_file_name = "daily-output.txt";
+const char* o_file_name = "daily-output.txt";
 
 /* this function is used to write the changes that have happened in one day
 to file. Including the number of newly infected... */
-void output_to_file(FILE myfile, struct list_day_node myday)
+void output_to_file(FILE *myfile, struct list_day_node myday)
 {
   // write the appropriate data from the struct to file
   fprintf(myfile, "Day %lld\n", myday.simulationDay);
@@ -321,37 +321,20 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             }
 
 
-        }
-
+        } // end if
         //adults are at work or school 8am-5pm
         else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
 
             unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
 
-            for (j = 0; j < numberOfInfected; j++){
+            for (int j = 0; j < numberOfInfected; j++){
                 if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
                     //call the function for d_adultAgents[tid].id va infectedid
                     if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
                         cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
-
-            //adults are at work or school
-            else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
-
-                unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
-
-                for (j = 0; j < numberOfInfected; j++){
-                    if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
-                        //call the function for d_adultAgents[tid].id va infectedid
-                        if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
-                            cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
-                        }
                     }
                 }
-
             }
-
-
-
         }
 
         //adults on weekdays errand -- community events 5-7pm
@@ -360,33 +343,12 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
             float current_distance =0 ;
 
-            for (j = 0; j < numberOfInfected; j++){
-
+            for (int j = 0; j < numberOfInfected; j++){
                 current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
                 if ( fabs(current_distance - 2.000000) < EPSILON ){
                     cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
-
-            //adults on weekdays errand
-            else if ( currentHour>= 17 &&   currentHour<19  ){
-
-
-                float current_distance =0 ;
-
-                for (j = 0; j < numberOfInfected; j++){
-
-                    current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
-                    if ( fabs(current_distance - 2.000000) < EPSILON ){
-                        cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
-                    }
-
                 }
-
-
-
             }
-
-
-
         }
     }
     // here is the alpha variable.
@@ -417,25 +379,22 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
             d_infected_individuals[my_idx] = d_adultAgents[tid].id;
 
-            atomicAdd(daily_list[simulationDay].numInfectedDuringDay,1);
+            atomicAdd(&daily_list[simulationDay].numInfectedDuringDay,1);
         }
-    }
 
 
     // if a person is infected and still alive, increment its timer
     // if it has been 7 days, the person has a 38.6% chance to die
     // status is set to 0 whether they live or die
-    else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
+    } else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
         d_adultAgents[tid].timer++;
         if (d_adultAgents[tid].timer == 7) {
             d_adultAgents[tid].status = 0;
             curandState_t state;
-            curand_init((unsigned long long)clock() + tid, 0, 0, &state)
+            curand_init((unsigned long long)clock() + tid, 0, 0, &state);
             double result = curand_uniform_double(&state) % 100;
             if (result < 38.61) {
                 d_adultAgents[tid].alive = false;
-                // increment the number of deaths that have occured
-                atomicAdd(daily_list[simulationDay].numDeathsDuringDay,1);
             }
         }
     }
@@ -445,21 +404,15 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
 
     __syncthreads();
 
-    // now set the total number of infected/deaths
+    // now set the total number of infected
     if( simulationDay > 1 && tid == 0){ // run this only once
         unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
             daily_list[simulationDay].numInfectedDuringDay;
-        atomicAdd(daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
-        unsigned long long tempDeaths = daily_list[simulationDay-1].totalDeathsAtEndOfDay +
-            daily_list[simulationDay].numDeathsDuringDay;
-        atomicAdd(daily_list[simulationDay].totalDeathsAtEndOfDay,tempDeaths);
+        atomicAdd(&daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
     }
     else if(tid == 0){ // run this only once
         daily_list[simulationDay].totalNumInfectedAtEndOfDay = daily_list[simulationDay].numInfectedDuringDay;
-        daily_list[simulationDay].totalDeathsAtEndOfDay = daily_list[simulationDay].numDeathsDuringDay;
     }
-
-    __syncthreads();
 
 }
 
@@ -485,7 +438,7 @@ int main(int argc, const char * argv[])
     max_number_workplaces= max_number_adult / max_num_employee;
 
 
-    unsigned long long  i;
+    //unsigned long long  i;
     unsigned long long  j;
     unsigned long long h_numberOfInfected=0;
     int num_infected=10;
