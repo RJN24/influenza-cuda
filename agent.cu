@@ -139,8 +139,6 @@ void output_to_file(FILE *myfile, struct list_day_node myday)
 
 __global__ void kernel_generate_household(int startingpoint, int houseType, int residentStrttPoint , struct entity *d_adultAgents , struct houseHold *d_houseHolds) {
 
-
-
 	const unsigned int tid = startingpoint + threadIdx.x + (blockIdx.x*blockDim.x);
     if (tid < dev_max_number_house){
         int i=0;
@@ -148,7 +146,6 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
         d_houseHolds[tid].type=houseType;
         d_houseHolds[tid].hasInfected=0;
         int aId;
-        //curandState_t state = states[tid];
         curandState_t state;
         curand_init(0, /* the seed controls the sequence of random values that are produced */
                     tid, /* the sequence number is only important with multiple cores */
@@ -159,22 +156,19 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
         int ypos = curand(&state) % POS_SIZE;
         
 
-        // this needs to be changed to properly reflect the portion percentages
-        int age = curand(&stade) % 100;
+       
+        int age = curand(&state) % 100;
         int ageGroup;
-        if (age >= 0 && age <= 15) {    // The person is a  (should be an 18% chance)
+        if (age >= 0 && age <= 18) {    // The person is a kid  (should be an 18% chance)
             ageGroup = 0;
         }
-        else if (age >= 16 && age <= 64 ) { // the person is an adult (should be a 68% chance)
+        else if (age >= 19 && age <= 86 ) { // the person is an adult (should be a 68% chance)
             ageGroup = 1;
         }
         else {
             ageGroup = 2;   // the person is a senior citizen   (should be 14% chance)
         }
 
-//        if(tid==10) {
-//            printf("xpos is: %i  and ypos is %i : \n", xpos, ypos );
-//        }
 
         for (i=0; i<houseType; i++){
 
@@ -195,12 +189,6 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             // todo add travel rate based on age
             // NOTE - the TA said this is not needed for our implementation
         }
-
-
-
-//        if(tid==10) {
-//            printf("household id is: %li and adult agent id is %li  \n", d_houseHolds[tid].id, d_adultAgents[aId].id);
-//        }
 
     }
 
