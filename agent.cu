@@ -58,7 +58,7 @@ struct entity
 	// Individual attributes
     unsigned long long 	id;			// Unique # for each person in the community
     int     status;
-    int		age;					// Age of the individual: 0-7 basedon age group in input data
+    int		age;					// Age of the individual: 0-3 where 0 = kid, 1 = adult, 2 = senior citizen
     long	householdId;			// ID number of its associated household
     long    workPlaceId;
     int     infectedDay;
@@ -66,7 +66,6 @@ struct entity
     int     y_pos;
     int     severity;
     float   travel_rate;
-    bool    beenInfected;
     int     timer;
     bool    alive;
 } entity;
@@ -158,6 +157,20 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
 
         int xpos = curand(&state) % POS_SIZE;
         int ypos = curand(&state) % POS_SIZE;
+        
+
+        // this needs to be changed to properly reflect the portion percentages
+        int age = curand(&stade) % 100;
+        int ageGroup;
+        if (age >= 0 && age <= 15) {    // The person is a  (should be an 18% chance)
+            ageGroup = 0;
+        }
+        else if (age >= 16 && age <= 64 ) { // the person is an adult (should be a 68% chance)
+            ageGroup = 1;
+        }
+        else {
+            ageGroup = 2;   // the person is a senior citizen   (should be 14% chance)
+        }
 
 //        if(tid==10) {
 //            printf("xpos is: %i  and ypos is %i : \n", xpos, ypos );
@@ -172,10 +185,9 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             d_adultAgents[aId].status=0;
             d_adultAgents[aId].householdId=tid;
 
-            d_adultAgents[aId].age=23;
+            d_adultAgents[aId].age=ageGroup;
             d_adultAgents[aId].infectedDay=0;
             d_adultAgents[aId].severity=0;
-            d_adultAgents[aId].beenInfected=false;
             d_adultAgents[aId].alive=true;
             d_adultAgents[aId].x_pos =xpos;
             d_adultAgents[aId].y_pos =ypos;
@@ -221,8 +233,16 @@ __global__ void kernel_generate_workplace(int numberofEmployee, struct entity *d
 
 }
 
-__global__ void kernel_generate_community(int numOfPeople, struct entity *d_adultAgents, struct community *d_community) {
-    
+__global__ void kernel_generate_community(int communityType, struct entity *d_adultAgents, struct community *d_community) {
+
+    const unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x);
+    int i;
+
+    d_community[tid].id=tid;
+    d_community[tid].type = communityType;
+    d_community[tid].hasInfected = 0;
+
+
 }
 
 
@@ -233,37 +253,31 @@ __global__ void kernel_update_infected( unsigned long long  id0, unsigned long l
     d_adultAgents[id0].status=1;
     d_adultAgents[id0].infectedDay=0;
     d_adultAgents[id0].timer=0;
-    d_adultAgents[id0].beenInfected=true;
     d_adultAgents[id0].alive=true;
     d_adultAgents[id1].severity=1;
     d_adultAgents[id1].status=1;
     d_adultAgents[id1].infectedDay=0;
     d_adultAgents[id1].timer=0;
-    d_adultAgents[id1].beenInfected=true;
     d_adultAgents[id1].alive=true;
     d_adultAgents[id2].severity=1;
     d_adultAgents[id2].status=1;
     d_adultAgents[id2].infectedDay=0;
     d_adultAgents[id2].timer=0;
-    d_adultAgents[id2].beenInfected=true;
     d_adultAgents[id2].alive=true;
     d_adultAgents[id3].severity=1;
     d_adultAgents[id3].status=1;
     d_adultAgents[id3].infectedDay=0;
     d_adultAgents[id3].timer=0;
-    d_adultAgents[id3].beenInfected=true;
     d_adultAgents[id3].alive=true;
     d_adultAgents[id4].severity=1;
     d_adultAgents[id4].status=1;
     d_adultAgents[id4].infectedDay=0;
     d_adultAgents[id4].timer=0;
-    d_adultAgents[id4].beenInfected=true;
     d_adultAgents[id4].alive=true;
     d_adultAgents[id5].severity=1;
     d_adultAgents[id5].status=1;
     d_adultAgents[id5].infectedDay=0;
     d_adultAgents[id5].timer=0;
-    d_adultAgents[id5].beenInfected=true;
     d_adultAgents[id5].alive=true;
 
 }
@@ -357,8 +371,8 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     //float alpha = 0.8;
 
 
-    // only applies to people who are not infected nor ever have been
-    if (d_adultAgents[tid].status==0 && !d_adultAgents[tid].beenInfected ) {
+    // only applies to people who are not infected 
+    if (d_adultAgents[tid].status==0 ) {
 
 
         cur_lambda = (1- exp (- cur_lambda)) ;
@@ -376,7 +390,6 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             d_adultAgents[tid].infectedDay= simulationDay;
             d_adultAgents[tid].severity = 1;
             d_adultAgents[tid].timer = 0;
-            d_adultAgents[tid].beenInfected=true;
 
             unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
             d_infected_individuals[my_idx] = d_adultAgents[tid].id;
