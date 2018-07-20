@@ -128,12 +128,12 @@ const char* o_file_name = "daily-output.txt";
 
 /* this function is used to write the changes that have happened in one day
 to file. Including the number of newly infected... */
-void output_to_file(FILE *myfile, struct list_day_node myday)
+void output_to_file(FILE *myfile, struct list_day_node myday, int num_infected)
 {
   // write the appropriate data from the struct to file
   fprintf(myfile, "Day %lld\n", myday.simulationDay);
   fprintf(myfile, "People infected on this day: %lld\n", myday.numInfectedDuringDay);
-  fprintf(myfile, "Total number of infected: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
+  fprintf(myfile, "Total number of infected: %lld\n\n", myday.totalNumInfectedAtEndOfDay+num_infected);
 }
 
 
@@ -296,7 +296,8 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                     0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
                     &state);
 
-        if (simulationDay%7==0 || simulationDay%7==1){
+        // weekdays are satuday and sunday (5 and 6) since we include day 0
+        if (simulationDay%6==0 || (simulationDay+1)%6==0){
             weekDayStatus=0;
         }
         else {
@@ -664,7 +665,7 @@ int main(int argc, const char * argv[])
         fprintf(myfile, "Number of simulated days: %d\n", max_number_days);
         fprintf(myfile, "Starting with %d initial infected.\n\n", num_infected);
         for(int i=0; i<simulationDay; i++){
-            output_to_file(myfile,dayUpdateList[i]);
+            output_to_file(myfile,dayUpdateList[i], num_infected);
         }
     }
     fclose(myfile);
