@@ -122,7 +122,7 @@ struct list_day_node *d_dayUpdateList;
 unsigned long long  *d_infected_individuals;
 unsigned long long  *infected_individuals;
 
-__device__ unsigned long long  numberOfInfected=9 ;
+__device__ unsigned long long  numberOfInfected=6 ;
 
 const char* o_file_name = "daily-output.txt";
 
@@ -133,7 +133,7 @@ void output_to_file(FILE *myfile, struct list_day_node myday)
   // write the appropriate data from the struct to file
   fprintf(myfile, "Day %lld\n", myday.simulationDay);
   fprintf(myfile, "People infected on this day: %lld\n", myday.numInfectedDuringDay);
-  fprintf(myfile, "Total number of infected on this day: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
+  fprintf(myfile, "Total number of infected: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
 }
 
 
@@ -170,8 +170,8 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             ageGroup = 2;   // the person is a senior citizen   (should be 14% chance)
         }
 
-
-        for (i=0; i<houseType; i++){
+        // ensure we arent going over max number of adults
+        for (i=0; i<houseType && tid+i+tid*(houseType-1) < dev_max_number_adult; i++){
 
             aId= tid + i +  tid*(houseType-1);
 
@@ -199,17 +199,15 @@ __global__ void kernel_generate_workplace(int numberofEmployee, struct entity *d
 
     const unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x);
     int i;
-
     if( tid < dev_max_number_workplaces ){
         d_workPlaces[tid].id= tid ;
         d_workPlaces[tid].employeeNum= numberofEmployee;
         d_workPlaces[tid].hasInfected=0;
         int id=0;
 
-        for (i=0; i<numberofEmployee; i++){
+        for (i=0; i<numberofEmployee && tid+i+(tid*(numberofEmployee-1)) < dev_max_number_adult; i++){
             id = tid +  i + ( tid * (numberofEmployee-1));
             d_adultAgents[id].workPlaceId = tid;
-
         }
     }
 
@@ -230,7 +228,7 @@ __global__ void kernel_generate_community(struct community *d_community) {
 
 
 // initializes the original 6 infected people.
-__global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5,  unsigned long long  id6,  unsigned long long  id7,  unsigned long long  id8,  unsigned long long  id9, struct entity *d_adultAgents){
+__global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5, struct entity *d_adultAgents){
     d_adultAgents[id0].severity=1;
     d_adultAgents[id0].status=1;
     d_adultAgents[id0].infectedDay=0;
@@ -298,7 +296,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                     0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
                     &state);
 
-        if (simulationDay%7==0 || simulationDay%7==0){
+        if (simulationDay%7==0 || simulationDay%7==1){
             weekDayStatus=0;
         }
         else {
@@ -313,11 +311,21 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
             d_communityPlaces[tid].hasInfected = 0;
         }
 
+
+
         // now set the daily variables to 0
         if( tid == 0 ){
             daily_list[simulationDay].numInfectedDuringDay = 0;
-            daily_list[simulationDay].totalNumInfectedAtEndOfDay = 0;
+            if(simulationDay == 0){
+                daily_list[simulationDay].totalNumInfectedAtEndOfDay = 0;
+            }
+            else {
+                daily_list[simulationDay].totalNumInfectedAtEndOfDay =
+                    daily_list[simulationDay-1].totalNumInfectedAtEndOfDay;
+            }
         }
+
+
 
         // loop through the day hour by hour if alive
         if( d_adultAgents[tid].alive == true ){
@@ -439,15 +447,16 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 }
             }
         }
+
     }// end if tid < dev_max_number_adult
 
     __syncthreads();
 
     // now set the total number of infected
-    if( simulationDay > 1 && tid == 0){ // run this only once (hence tid==0), on all days after day 1
-        unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
-            daily_list[simulationDay].numInfectedDuringDay;
-        atomicAdd(&daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
+    if( simulationDay > 0 && tid == 0){ // run this only once (hence tid==0), on all days after day 1
+        // unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
+        //     daily_list[simulationDay].numInfectedDuringDay;
+        atomicAdd(&daily_list[simulationDay].totalNumInfectedAtEndOfDay,daily_list[simulationDay].numInfectedDuringDay);
         // set the day number in the daily output struct
         daily_list[simulationDay].simulationDay = simulationDay;
     }
@@ -456,7 +465,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
         // set the day number in the daily output struct
         daily_list[simulationDay].simulationDay = simulationDay;
     }
-
+    __syncthreads();
 }
 
 
@@ -471,21 +480,23 @@ int main(int argc, const char * argv[])
     }
 
     max_number_adult = atoi(argv[1]);
+    if( max_number_adult < 6 )
+        max_number_adult = 6;
+
     max_number_days = atoi(argv[2]);
     if( max_number_days <= 0)
         max_number_days = 1;
     max_number_households = max_number_adult/5;
 
     int max_num_employee= 100;
-    max_number_workplaces= max_number_adult / max_num_employee;
-
+    max_number_workplaces= (max_number_adult / max_num_employee) + 1;
 
     //unsigned long long  i;
     unsigned long long  j;
     unsigned long long h_numberOfInfected=0;
-    int num_infected=10;
+    int num_infected=6;
 
-    printf( "start allocation \n" );
+    //printf( "start allocation \n" );
 
     adultAgents = (struct entity *)malloc(sizeof(struct entity)*max_number_adult);
     memset(adultAgents, 0,  (sizeof(struct entity)*max_number_adult) );
@@ -497,7 +508,7 @@ int main(int argc, const char * argv[])
     // set up our day update list
     dayUpdateList = (struct list_day_node*)malloc(sizeof(struct list_day_node)*max_number_days);
 
-    printf( "start allocation on device \n" );
+    //printf( "start allocation on device \n" );
 
     cudaMalloc((void **) &d_adultAgents, sizeof(struct entity)*max_number_adult );
 
@@ -505,12 +516,12 @@ int main(int argc, const char * argv[])
     cudaMalloc((void **) &d_workPlaces, sizeof(struct workPlaces ) * max_number_workplaces);
     cudaMalloc((void **) &d_communityPlaces, sizeof(struct community)*max_number_community_places);
 
-    cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long  ) * ( max_number_adult));
+    cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long) * ( max_number_adult));
 
     // allocate the dayUpdateList on GPU
     cudaMalloc((void **) &d_dayUpdateList, sizeof(struct list_day_node)*max_number_days);
 
-    printf( "finish allocation \n" );
+    //printf( "finish allocation \n" );
 
     cudaMemset(d_adultAgents, 0, sizeof(struct entity)*max_number_adult);
     //  cudaMemset(d_childAgents, 0, sizeof(struct entity)*max_number_child);
@@ -518,6 +529,7 @@ int main(int argc, const char * argv[])
     cudaMemset(d_workPlaces, 0, sizeof(struct workPlaces)*max_number_workplaces);
     cudaMemset(d_communityPlaces, 0, sizeof(struct community)*max_number_community_places);
     cudaMemset(d_infected_individuals, 0, sizeof(unsigned long long )* ( max_number_adult));
+    cudaMemset(d_dayUpdateList,0,sizeof(struct list_day_node)*max_number_days);
 
     cudaMemcpyToSymbol(dev_max_number_adult, &max_number_adult, sizeof(unsigned long long ));
     // cudaMemcpyToSymbol(dev_max_number_child, &max_number_child, sizeof(unsigned long long ));
@@ -531,10 +543,8 @@ int main(int argc, const char * argv[])
     cudaMemcpyToSymbol(comm_trans, &community_transmition, sizeof(float));
 
     for(j = 0;  j < num_infected; j++) {
-
         infected_individuals[j]=rand() % max_number_adult ;
         //printf( "infected_individuals id is = %llu : \n", infected_individuals[j]);
-
     }
 
     int blocks_num;
@@ -548,7 +558,7 @@ int main(int argc, const char * argv[])
 
     dim3 grid(blocks_num, 1, 1);
     dim3 threads(BLOCK_SIZE, 1, 1);
-    printf( "number of blocks is: %i \n", blocks_num );
+    //printf( "number of blocks is: %i \n", blocks_num );
 
     /* start counting time */
     cudaEvent_t start, stop;
@@ -565,17 +575,17 @@ int main(int argc, const char * argv[])
     gpuErrchk(cudaDeviceSynchronize());
     //call the kernel function to generate individual of household type 1 , 2 adults, 3 children
 
-    printf( "******** before calling the function ***** \n");
+    //printf( "******** before calling the function ***** \n");
 
     kernel_generate_household << <grid, threads>> > ( startpoint,  houseType, residentStrttPoint, d_adultAgents ,d_houseHolds);
 
 
-    printf( "******** after calling the function ***** \n");
+    //printf( "******** after calling the function ***** \n");
     gpuErrchk(cudaDeviceSynchronize());
 
 
     blocks_num = ceil(max_number_workplaces / BLOCK_SIZE)+1;
-    printf( "number of blocks for work places is: %i \n", blocks_num );
+    //printf( "number of blocks for work places is: %i \n", blocks_num );
     dim3 grid2(blocks_num, 1, 1);
     dim3 threads2(BLOCK_SIZE, 1, 1);
     kernel_generate_workplace << <grid2, threads2>> > ( max_num_employee, d_adultAgents, d_workPlaces);
@@ -584,7 +594,7 @@ int main(int argc, const char * argv[])
     gpuErrchk(cudaDeviceSynchronize());
 
     blocks_num = ceil(max_number_community_places / BLOCK_SIZE)+1;
-    printf( "number of blocks for community places is: %i\n", blocks_num );
+    //printf( "number of blocks for community places is: %i\n", blocks_num );
     dim3 gridCom(blocks_num,1,1);
     dim3 threadsCom(BLOCK_SIZE,1,1);
     kernel_generate_community <<< gridCom, threadsCom >>> (d_communityPlaces);
@@ -594,30 +604,27 @@ int main(int argc, const char * argv[])
     //update infected individuals status
     dim3 grid3(1, 1, 1);
 	dim3 threads3(1, 1, 1);
-    kernel_update_infected << <grid3, threads3>> > (infected_individuals[0],
+    kernel_update_infected <<<grid3, threads3>>> (infected_individuals[0],
         infected_individuals[1], infected_individuals[2], infected_individuals[3],
-        infected_individuals[4], infected_individuals[5], infected_individuals[6],
-        infected_individuals[7],infected_individuals[8], infected_individuals[9],
-        d_adultAgents);
+        infected_individuals[4], infected_individuals[5], d_adultAgents);
     gpuErrchk(cudaDeviceSynchronize());
 
     blocks_num = ceil((max_number_adult) / BLOCK_SIZE)+1;
     dim3 grid4(blocks_num, 1, 1);
     dim3 threads4(BLOCK_SIZE, 1, 1);
 
+    printf("Starting simulation!\n");
     //run the simulation
+    int simulationDay;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start, 0);
 
-    int simulationDay;
-
-
-    printf( "******** call the contact process ***** \n");
+    //printf( "******** call the contact process ***** \n");
     //calclate force of infection
     //should be run for each day of simulation
-    for (simulationDay=1; simulationDay <=2; simulationDay ++){
-    kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,
+    for (simulationDay=0; simulationDay < max_number_days; simulationDay++){
+    kernel_calculate_contact_process <<<grid4, threads4>>> ( d_infected_individuals,
         d_adultAgents, d_houseHolds, d_workPlaces, d_communityPlaces, max_number_community_places, simulationDay,
         d_dayUpdateList);
     }
@@ -651,7 +658,11 @@ int main(int argc, const char * argv[])
       printf("Error opening output file.\n");
     }
     else{
-        fprintf(myfile, "Starting day by day output of simulation!\n\n");
+        fprintf(myfile, "Starting day by day output of simulation!\n");
+        fprintf(myfile, "Using the following parameters: \n");
+        fprintf(myfile, "Max number of agents: %lld\n", max_number_adult);
+        fprintf(myfile, "Number of simulated days: %d\n", max_number_days);
+        fprintf(myfile, "Starting with %d initial infected.\n\n", num_infected);
         for(int i=0; i<simulationDay; i++){
             output_to_file(myfile,dayUpdateList[i]);
         }
