@@ -2,13 +2,13 @@
 // one kernel implementation
 #include <unistd.h>
 #include <stdio.h>
-#include<stdlib.h>
+#include <stdlib.h>
 #include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
 #include <math.h>
-#include<time.h>
-#include<string.h>
+#include <time.h>
+#include <string.h>
 #include <iostream>
 
 #include <cmath>
@@ -20,12 +20,13 @@
 __device__ __constant__ long     dev_max_number_adult;
 __device__ __constant__ long     dev_max_number_child;
 __device__ __constant__ long     dev_max_number_house;
+__device__ __constant__ long     dev_max_number_workplaces;
 
 
 //define desease transmition parameer
 __device__ __constant__ float     house_trans;    //household transmition parameter
 __device__ __constant__ float     place_trans;    //place transmition parameter
-__device__ __constant__ float     comm_trans;      //community transmition parameter
+__device__ __constant__ float     comm_trans;     //community transmition parameter
 __device__ __constant__ float     travel_rate;
 __device__ __constant__ float     ind_inf;        //relative infectiousness of an individual
 __device__ __constant__ int       mild_infect;    //mild infection rate w
@@ -84,10 +85,8 @@ struct workPlaces  {
     int         hasInfected;            //if there is an infected in this place
 }workPlaces;
 
-// this struct may be unnecessary
 struct community {
 	unsigned long long 		id;	// ID
-	int 		type;		// type of community
 	int 		hasInfected;	// If there is an infected currently present
 }community;
 
@@ -111,17 +110,19 @@ unsigned long long      max_number_days;
 unsigned long long 		max_number_adult;
 unsigned long long      max_number_households ;
 unsigned long long      max_number_workplaces ;
+unsigned long long      max_number_community_places = 100;
 unsigned long long      max_region_population;
 //long long       max_number_schools = 128;
 struct houseHold *d_houseHolds;
 struct workPlaces *d_workPlaces;
+struct community *d_communityPlaces;
 struct school *d_schools;
 struct list_day_node *d_dayUpdateList;
 
 unsigned long long  *d_infected_individuals;
 unsigned long long  *infected_individuals;
 
-__device__ unsigned long long  numberOfInfected=9 ;
+__device__ unsigned long long  numberOfInfected=6 ;
 
 const char* o_file_name = "daily-output.txt";
 
@@ -132,7 +133,7 @@ void output_to_file(FILE *myfile, struct list_day_node myday)
   // write the appropriate data from the struct to file
   fprintf(myfile, "Day %lld\n", myday.simulationDay);
   fprintf(myfile, "People infected on this day: %lld\n", myday.numInfectedDuringDay);
-  fprintf(myfile, "Total number of infected on this day: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
+  fprintf(myfile, "Total number of infected: %lld\n\n", myday.totalNumInfectedAtEndOfDay);
 }
 
 
@@ -154,9 +155,9 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
 
         int xpos = curand(&state) % POS_SIZE;
         int ypos = curand(&state) % POS_SIZE;
-        
 
-       
+
+
         int age = curand(&state) % 100;
         int ageGroup;
         if (age >= 0 && age <= 18) {    // The person is a kid  (should be an 18% chance)
@@ -169,8 +170,8 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             ageGroup = 2;   // the person is a senior citizen   (should be 14% chance)
         }
 
-
-        for (i=0; i<houseType; i++){
+        // ensure we arent going over max number of adults
+        for (i=0; i<houseType && tid+i+tid*(houseType-1) < dev_max_number_adult; i++){
 
             aId= tid + i +  tid*(houseType-1);
 
@@ -186,8 +187,6 @@ __global__ void kernel_generate_household(int startingpoint, int houseType, int 
             d_adultAgents[aId].x_pos =xpos;
             d_adultAgents[aId].y_pos =ypos;
             d_adultAgents[aId].travel_rate = 1.0;
-            // todo add travel rate based on age
-            // NOTE - the TA said this is not needed for our implementation
         }
 
     }
@@ -200,43 +199,36 @@ __global__ void kernel_generate_workplace(int numberofEmployee, struct entity *d
 
     const unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x);
     int i;
+    if( tid < dev_max_number_workplaces ){
+        d_workPlaces[tid].id= tid ;
+        d_workPlaces[tid].employeeNum= numberofEmployee;
+        d_workPlaces[tid].hasInfected=0;
+        int id=0;
 
-    d_workPlaces[tid].id= tid ;
-    d_workPlaces[tid].employeeNum= numberofEmployee;
-    d_workPlaces[tid].hasInfected=0;
-    int id=0;
-
-    for (i=0; i<numberofEmployee; i++){
-        id = tid +  i + ( tid * (numberofEmployee-1));
-        d_adultAgents[id].workPlaceId = tid;
-
-    }
-    if(tid==1) {
-        printf("here\n");
-        printf("adult workplace id is:%li and agent id is: %i  \n", d_adultAgents[id].id, tid);
-
+        for (i=0; i<numberofEmployee && tid+i+(tid*(numberofEmployee-1)) < dev_max_number_adult; i++){
+            id = tid +  i + ( tid * (numberofEmployee-1));
+            d_adultAgents[id].workPlaceId = tid;
+        }
     }
 
     __syncthreads();
 
 }
 
-__global__ void kernel_generate_community(int communityType, struct entity *d_adultAgents, struct community *d_community) {
+__global__ void kernel_generate_community(struct community *d_community) {
 
     const unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x);
-    int i;
+    //int i;
 
     d_community[tid].id=tid;
-    d_community[tid].type = communityType;
+    //d_community[tid].type = communityType; // not needed
     d_community[tid].hasInfected = 0;
-
-
+    __syncthreads();
 }
 
 
 // initializes the original 6 infected people.
-// this is only done on one thread...
-__global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5,  unsigned long long  id6,  unsigned long long  id7,  unsigned long long  id8,  unsigned long long  id9, struct entity *d_adultAgents){
+__global__ void kernel_update_infected( unsigned long long  id0, unsigned long long  id1,  unsigned long long  id2,  unsigned long long  id3,  unsigned long long  id4,  unsigned long long  id5, struct entity *d_adultAgents){
     d_adultAgents[id0].severity=1;
     d_adultAgents[id0].status=1;
     d_adultAgents[id0].infectedDay=0;
@@ -280,8 +272,9 @@ __device__ float inline calculatePointDistance(int x1, int y1, int x2, int y2, i
 
 
 __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infected_individuals,
-    struct entity *d_adultAgents, struct houseHold *d_houseHolds,
-    struct workPlaces *d_workPlaces, int simulationDay, unsigned long long max_n, struct list_day_node* daily_list ) {
+    struct entity *d_adultAgents, struct houseHold *d_houseHolds, struct workPlaces *d_workPlaces,
+    struct community *d_communityPlaces, unsigned long long max_community_places, int simulationDay,
+    struct list_day_node* daily_list ) {
 
     const unsigned int tid =  threadIdx.x + (blockIdx.x*blockDim.x);
 
@@ -290,133 +283,189 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     float check_rand;
     register double cur_lambda=0;
 
-    if (simulationDay%7==0 || simulationDay%7==0){
-        weekDayStatus=0;
-    }
-    else {
-        weekDayStatus=1;
-    }
-    cur_lambda=0;
+    if( tid < dev_max_number_adult ){
 
 
-    for (currentHour =0; currentHour <24; currentHour ++){
-
-        if (d_adultAgents[tid].status==0) {
-
-           // float total_distance =0;
-            int j;
-
-
-            //adults are at home on weekday or weekends
-            if  ( ( (weekDayStatus == 1) && (( currentHour>= 19 &&   currentHour<24) || ( currentHour>= 0 &&   currentHour< 8)) ) ||  ( (weekDayStatus == 0) && (( currentHour>= 0 &&   currentHour<17) || ( currentHour>= 19 &&   currentHour< 24)) ) ){
-                unsigned long long  houseid =d_adultAgents[tid].householdId;
-
-                for (j = 0; j < numberOfInfected; j++){
-                    //call the function for d_adultAgents[tid].id va infectedid
-                    if (d_adultAgents[d_infected_individuals[j]].householdId == houseid){
-
-                        cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) )* (1 + d_adultAgents[d_infected_individuals[j]].severity) ) / (pow((double)d_houseHolds[houseid].type, 0.8)));
-
-
-                    }
-                }
-
-
-            }
-
-
-        } // end if
-        //adults are at work or school 8am-5pm
-        else if ( (weekDayStatus == 1) && ( currentHour>= 8 &&   currentHour<17 ) ){
-
-            unsigned long long  workplaceId =d_adultAgents[tid].workPlaceId;
-
-            for (int j = 0; j < numberOfInfected; j++){
-                if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
-                    //call the function for d_adultAgents[tid].id va infectedid
-                    if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
-                        cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
-                    }
-                }
-            }
-        }
-
-        //adults on weekdays errand -- community events 5-7pm
-        else if ( currentHour>= 17 &&   currentHour<19  ){
-
-
-            float current_distance =0 ;
-
-            for (int j = 0; j < numberOfInfected; j++){
-                current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
-                if ( fabs(current_distance - 2.000000) < EPSILON ){
-                    cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
-                }
-            }
-        }
-    }
-    // here is the alpha variable.
-    //float alpha = 0.8;
-
-
-    // only applies to people who are not infected 
-    if (d_adultAgents[tid].status==0 ) {
-
-
-        cur_lambda = (1- exp (- cur_lambda)) ;
+        unsigned long hid = d_adultAgents[tid].householdId;
+        unsigned long wid = d_adultAgents[tid].workPlaceId;
+        unsigned long communityId=0;
 
         curandState_t state;
         curand_init(0, /* the seed controls the sequence of random values that are produced */
                     tid, /* the sequence number is only important with multiple cores */
                     0, /* the offset is how much extra we advance in the sequence for each call, can be 0 */
                     &state);
-        check_rand = curand_uniform(&state) ;
 
-        bool check =fabs(cur_lambda - check_rand) < EPSILON;
-        if (check==true) {
-            d_adultAgents[tid].status=1;
-            d_adultAgents[tid].infectedDay= simulationDay;
-            d_adultAgents[tid].severity = 1;
-            d_adultAgents[tid].timer = 0;
+        if (simulationDay%7==0 || simulationDay%7==1){
+            weekDayStatus=0;
+        }
+        else {
+            weekDayStatus=1;
+        }
+        cur_lambda=0;
 
-            unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
-            d_infected_individuals[my_idx] = d_adultAgents[tid].id;
-
-            atomicAdd(&daily_list[simulationDay].numInfectedDuringDay,1);
+        // clear out infections at each workplace/household/communityplace
+        d_workPlaces[wid].hasInfected = 0;
+        d_houseHolds[hid].hasInfected = 0;
+        if( tid < max_community_places ){
+            d_communityPlaces[tid].hasInfected = 0;
         }
 
 
-    // if a person is infected and still alive, increment its timer
-    // if it has been 7 days, the person has a 38.6% chance to die
-    // status is set to 0 whether they live or die
-    } else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
-        d_adultAgents[tid].timer++;
-        if (d_adultAgents[tid].timer == 7) {
-            d_adultAgents[tid].status = 0;
-            curandState_t state;
-            curand_init((unsigned long long)clock() + tid, 0, 0, &state);
-            double result = curand_uniform_double(&state) % 100;
-            if (result < 38.61) {
-                d_adultAgents[tid].alive = false;
+
+        // now set the daily variables to 0
+        if( tid == 0 ){
+            daily_list[simulationDay].numInfectedDuringDay = 0;
+            if(simulationDay == 0){
+                daily_list[simulationDay].totalNumInfectedAtEndOfDay = 0;
+            }
+            else {
+                daily_list[simulationDay].totalNumInfectedAtEndOfDay =
+                    daily_list[simulationDay-1].totalNumInfectedAtEndOfDay;
             }
         }
-    }
 
-    // set the day number in the daily output struct
-    daily_list[simulationDay].simulationDay = simulationDay;
+
+
+        // loop through the day hour by hour if alive
+        if( d_adultAgents[tid].alive == true ){
+            for (currentHour = 0; currentHour < 24; currentHour ++){
+
+                //adults are at home on weekday or weekends
+                if  ( ( (weekDayStatus == 1) && (( currentHour>= 19 &&   currentHour<24) || ( currentHour>= 0 &&   currentHour< 8)) ) ||  ( (weekDayStatus == 0) && (( currentHour>= 0 &&   currentHour<17) || ( currentHour>= 19 &&   currentHour< 24)) ) ){
+
+                    // check if anyone in the house is sick
+                    if( d_adultAgents[tid].status == 1){
+                        d_houseHolds[hid].hasInfected = 1;
+                    }
+
+                    // OLD LAMDA code
+                    // for (j = 0; j < numberOfInfected; j++){
+                    //     //call the function for d_adultAgents[tid].id va infectedid
+                    //     if (d_adultAgents[d_infected_individuals[j]].householdId == houseid){
+                    //         cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) )* (1 + d_adultAgents[d_infected_individuals[j]].severity) ) / (pow((double)d_houseHolds[houseid].type, 0.8)));
+                    //     }
+                    // }
+                }
+                //adults are at work or school 8am-5pm
+                else if ( (weekDayStatus == 1) && ( currentHour >= 8 && currentHour < 17 ) ){
+
+                    // check if this is an infected thread, if so set the workplace to hasInfected
+                    if( d_adultAgents[tid].status == 1){
+                        d_workPlaces[wid].hasInfected = 1;
+                    }
+
+                    // OLD LAMDA CODE
+                    // for (int j = 0; j < numberOfInfected; j++){
+                    //     if (d_adultAgents[d_infected_individuals[j]].workPlaceId == workplaceId){
+                    //         //call the function for d_adultAgents[tid].id va infectedid
+                    //         if ( simulationDay - d_adultAgents[d_infected_individuals[j]].infectedDay > 0.25) {
+                    //             cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * (1 + d_adultAgents[d_infected_individuals[j]].severity * ( (2 * 0.5) -1)) ) / d_workPlaces [workplaceId].employeeNum ) ;
+                    //         }
+                    //     }
+                    // }
+                }
+                //adults on weekdays errand -- community events 5-7pm
+                else if ( currentHour >= 17 && currentHour < 19  ){
+                    // assign each thread to a random community event
+                    check_rand = curand(&state) % max_community_places;
+                    communityId = check_rand; // this thread will be at this community
+
+                    // check if this is an infected thread, if so set the communityPlace to infected
+                    if (d_adultAgents[tid].status == 1) {
+                        d_communityPlaces[communityId].hasInfected = 1;
+                    }
+
+                    // OLD LAMDA CODE
+                    // float current_distance =0 ;
+                    // for (int j = 0; j < numberOfInfected; j++){
+                    //     current_distance = calculatePointDistance ( d_adultAgents[tid].x_pos, d_adultAgents[tid].y_pos, d_adultAgents[d_infected_individuals[j]].x_pos, d_adultAgents[d_infected_individuals[j]].y_pos, 35, 6.5 );
+                    //     if ( fabs(current_distance - 2.000000) < EPSILON ){
+                    //         cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) ) * current_distance * (1 + d_adultAgents[d_infected_individuals[j]].severity)) ;
+                    //     }
+                    // }
+                }
+            } // end for loop
+        } // end if - alive
+
+        // only applies to people who are not infected and alive
+        if (d_adultAgents[tid].status==0 && d_adultAgents[tid].alive == true) {
+
+            // new lamda code for homes
+            if( d_houseHolds[hid].hasInfected == 1){
+                // there is an infected person in the house, take this into accnt
+                // calc our log_normal_distribution
+                check_rand = curand_log_normal(&state,1.8,-0.72);
+                // using equation from parameters file in google drive
+                cur_lambda = cur_lambda + ( (0.47*check_rand*2) / d_houseHolds[hid].type);
+                //cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) ( (simulationDay-d_adultAgents[d_infected_individuals[j]].infectedDay) + 0.72) )), 2.0) / 6.48) ) )* (1 + d_adultAgents[d_infected_individuals[j]].severity) ) / (pow((double)d_houseHolds[houseid].type, 0.8)));
+            }
+
+            // new lamda code for work places
+            if(d_workPlaces[wid].hasInfected == 1){
+                check_rand = curand_log_normal(&state,1.8,-0.72);
+                // using equation from parameters file in google drive
+                cur_lambda = cur_lambda + ((0.47*check_rand) / d_workPlaces[wid].employeeNum);
+            }
+
+            // new lamda code for community places
+            if( d_communityPlaces[communityId].hasInfected == 1){
+                check_rand = curand_log_normal(&state,1.8,-0.72);
+                // using equation from parameters file in google drive
+                cur_lambda = cur_lambda + ((0.075*check_rand*2));
+            }
+
+            cur_lambda = (1- exp (- cur_lambda)) ;
+            check_rand = curand(&state) % 100;
+            bool check =fabs(cur_lambda - (check_rand)) < EPSILON;
+            if (check==true) {
+                d_adultAgents[tid].status=1;
+                d_adultAgents[tid].infectedDay= simulationDay;
+                d_adultAgents[tid].severity = 1;
+                d_adultAgents[tid].timer = 0;
+
+                unsigned long long  my_idx = atomicAdd(&numberOfInfected, 1);
+                d_infected_individuals[my_idx] = d_adultAgents[tid].id;
+
+                atomicAdd(&daily_list[simulationDay].numInfectedDuringDay,1);
+            }
+
+
+        // if a person is infected and still alive, increment its timer
+        // if it has been 7 days, the person has a 38.6% chance to die
+        // status is set to 0 whether they live or die
+        }
+        else if (d_adultAgents[tid].status == 1 && d_adultAgents[tid].alive) {
+            d_adultAgents[tid].timer++;
+            if (d_adultAgents[tid].timer == 7) {
+                d_adultAgents[tid].status = 0;
+                check_rand = curand(&state) % 1000;
+                check_rand = check_rand / 10;
+                //double result = check_rand % 100;//curand_uniform_double(&state) % 100;
+                if(check_rand < 38.61){//if (result < 38.61) {
+                    d_adultAgents[tid].alive = false;
+                }
+            }
+        }
+
+    }// end if tid < dev_max_number_adult
 
     __syncthreads();
 
     // now set the total number of infected
-    if( simulationDay > 1 && tid == 0){ // run this only once
-        unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
-            daily_list[simulationDay].numInfectedDuringDay;
-        atomicAdd(&daily_list[simulationDay].totalNumInfectedAtEndOfDay,tempTotal);
+    if( simulationDay > 0 && tid == 0){ // run this only once (hence tid==0), on all days after day 1
+        // unsigned long long tempTotal = daily_list[simulationDay-1].totalNumInfectedAtEndOfDay +
+        //     daily_list[simulationDay].numInfectedDuringDay;
+        atomicAdd(&daily_list[simulationDay].totalNumInfectedAtEndOfDay,daily_list[simulationDay].numInfectedDuringDay);
+        // set the day number in the daily output struct
+        daily_list[simulationDay].simulationDay = simulationDay;
     }
-    else if(tid == 0){ // run this only once
+    else if(tid == 0){ // run this only once per loop (hence tid==0), on day one
         daily_list[simulationDay].totalNumInfectedAtEndOfDay = daily_list[simulationDay].numInfectedDuringDay;
+        // set the day number in the daily output struct
+        daily_list[simulationDay].simulationDay = simulationDay;
     }
-
+    __syncthreads();
 }
 
 
@@ -431,22 +480,23 @@ int main(int argc, const char * argv[])
     }
 
     max_number_adult = atoi(argv[1]);
+    if( max_number_adult < 6 )
+        max_number_adult = 6;
+
     max_number_days = atoi(argv[2]);
     if( max_number_days <= 0)
         max_number_days = 1;
     max_number_households = max_number_adult/5;
-    // max_number_workplaces=max_number_adult/100;
 
     int max_num_employee= 100;
-    max_number_workplaces= max_number_adult / max_num_employee;
-
+    max_number_workplaces= (max_number_adult / max_num_employee) + 1;
 
     //unsigned long long  i;
     unsigned long long  j;
     unsigned long long h_numberOfInfected=0;
-    int num_infected=10;
+    int num_infected=6;
 
-    printf( "start allocation \n" );
+    //printf( "start allocation \n" );
 
     adultAgents = (struct entity *)malloc(sizeof(struct entity)*max_number_adult);
     memset(adultAgents, 0,  (sizeof(struct entity)*max_number_adult) );
@@ -458,29 +508,33 @@ int main(int argc, const char * argv[])
     // set up our day update list
     dayUpdateList = (struct list_day_node*)malloc(sizeof(struct list_day_node)*max_number_days);
 
-    printf( "start allocation on device \n" );
+    //printf( "start allocation on device \n" );
 
     cudaMalloc((void **) &d_adultAgents, sizeof(struct entity)*max_number_adult );
 
     cudaMalloc((void **) &d_houseHolds, sizeof(struct houseHold)*max_number_households );
     cudaMalloc((void **) &d_workPlaces, sizeof(struct workPlaces ) * max_number_workplaces);
+    cudaMalloc((void **) &d_communityPlaces, sizeof(struct community)*max_number_community_places);
 
-    cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long  ) * ( max_number_adult));
+    cudaMalloc((void **) &d_infected_individuals, sizeof(unsigned long long) * ( max_number_adult));
 
     // allocate the dayUpdateList on GPU
     cudaMalloc((void **) &d_dayUpdateList, sizeof(struct list_day_node)*max_number_days);
 
-    printf( "finish allocation \n" );
+    //printf( "finish allocation \n" );
 
     cudaMemset(d_adultAgents, 0, sizeof(struct entity)*max_number_adult);
     //  cudaMemset(d_childAgents, 0, sizeof(struct entity)*max_number_child);
     cudaMemset(d_houseHolds, 0, sizeof(struct houseHold)*max_number_households);
     cudaMemset(d_workPlaces, 0, sizeof(struct workPlaces)*max_number_workplaces);
+    cudaMemset(d_communityPlaces, 0, sizeof(struct community)*max_number_community_places);
     cudaMemset(d_infected_individuals, 0, sizeof(unsigned long long )* ( max_number_adult));
+    cudaMemset(d_dayUpdateList,0,sizeof(struct list_day_node)*max_number_days);
 
     cudaMemcpyToSymbol(dev_max_number_adult, &max_number_adult, sizeof(unsigned long long ));
     // cudaMemcpyToSymbol(dev_max_number_child, &max_number_child, sizeof(unsigned long long ));
     cudaMemcpyToSymbol(dev_max_number_house, &max_number_households, sizeof(unsigned long long ));
+    cudaMemcpyToSymbol(dev_max_number_workplaces, &max_number_workplaces, sizeof(unsigned long long));
     float house_transmition = 0.47;
     float place_transmition = 0.94;
     float community_transmition = 0.075;
@@ -489,10 +543,8 @@ int main(int argc, const char * argv[])
     cudaMemcpyToSymbol(comm_trans, &community_transmition, sizeof(float));
 
     for(j = 0;  j < num_infected; j++) {
-
         infected_individuals[j]=rand() % max_number_adult ;
-        printf( "infected_individuals id is = %llu : \n", infected_individuals[j]);
-
+        //printf( "infected_individuals id is = %llu : \n", infected_individuals[j]);
     }
 
     int blocks_num;
@@ -502,11 +554,11 @@ int main(int argc, const char * argv[])
     int residentStrttPoint=0;
 
     //blocks_num = (max_number_adult) / BLOCK_SIZE;
-    blocks_num = (max_number_adult) / BLOCK_SIZE;
+    blocks_num = ceil((max_number_adult) / BLOCK_SIZE)+1;
 
     dim3 grid(blocks_num, 1, 1);
     dim3 threads(BLOCK_SIZE, 1, 1);
-    printf( "number of blocks is: %i \n", blocks_num );
+    //printf( "number of blocks is: %i \n", blocks_num );
 
     /* start counting time */
     cudaEvent_t start, stop;
@@ -523,17 +575,17 @@ int main(int argc, const char * argv[])
     gpuErrchk(cudaDeviceSynchronize());
     //call the kernel function to generate individual of household type 1 , 2 adults, 3 children
 
-    printf( "******** before calling the function ***** \n");
+    //printf( "******** before calling the function ***** \n");
 
     kernel_generate_household << <grid, threads>> > ( startpoint,  houseType, residentStrttPoint, d_adultAgents ,d_houseHolds);
 
 
-    printf( "******** after calling the function ***** \n");
+    //printf( "******** after calling the function ***** \n");
     gpuErrchk(cudaDeviceSynchronize());
 
 
-    blocks_num = max_number_workplaces / BLOCK_SIZE;
-    printf( "number of blocks for work places is: %i \n", blocks_num );
+    blocks_num = ceil(max_number_workplaces / BLOCK_SIZE)+1;
+    //printf( "number of blocks for work places is: %i \n", blocks_num );
     dim3 grid2(blocks_num, 1, 1);
     dim3 threads2(BLOCK_SIZE, 1, 1);
     kernel_generate_workplace << <grid2, threads2>> > ( max_num_employee, d_adultAgents, d_workPlaces);
@@ -541,34 +593,40 @@ int main(int argc, const char * argv[])
 
     gpuErrchk(cudaDeviceSynchronize());
 
+    blocks_num = ceil(max_number_community_places / BLOCK_SIZE)+1;
+    //printf( "number of blocks for community places is: %i\n", blocks_num );
+    dim3 gridCom(blocks_num,1,1);
+    dim3 threadsCom(BLOCK_SIZE,1,1);
+    kernel_generate_community <<< gridCom, threadsCom >>> (d_communityPlaces);
+
+    gpuErrchk(cudaDeviceSynchronize());
+
     //update infected individuals status
     dim3 grid3(1, 1, 1);
 	dim3 threads3(1, 1, 1);
-    kernel_update_infected << <grid3, threads3>> > (infected_individuals[0],
+    kernel_update_infected <<<grid3, threads3>>> (infected_individuals[0],
         infected_individuals[1], infected_individuals[2], infected_individuals[3],
-        infected_individuals[4], infected_individuals[5], infected_individuals[6],
-        infected_individuals[7],infected_individuals[8], infected_individuals[9],
-        d_adultAgents);
+        infected_individuals[4], infected_individuals[5], d_adultAgents);
     gpuErrchk(cudaDeviceSynchronize());
 
-    blocks_num = (max_number_adult) / BLOCK_SIZE;
+    blocks_num = ceil((max_number_adult) / BLOCK_SIZE)+1;
     dim3 grid4(blocks_num, 1, 1);
     dim3 threads4(BLOCK_SIZE, 1, 1);
 
+    printf("Starting simulation!\n");
     //run the simulation
+    int simulationDay;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start, 0);
 
-    int simulationDay;
-
-
-    printf( "******** call the contact process ***** \n");
+    //printf( "******** call the contact process ***** \n");
     //calclate force of infection
     //should be run for each day of simulation
-    for (simulationDay=1; simulationDay <=2; simulationDay ++){
-    kernel_calculate_contact_process << <grid4, threads4>> > ( d_infected_individuals,
-        d_adultAgents, d_houseHolds, d_workPlaces, simulationDay, max_number_adult, d_dayUpdateList);
+    for (simulationDay=0; simulationDay < max_number_days; simulationDay++){
+    kernel_calculate_contact_process <<<grid4, threads4>>> ( d_infected_individuals,
+        d_adultAgents, d_houseHolds, d_workPlaces, d_communityPlaces, max_number_community_places, simulationDay,
+        d_dayUpdateList);
     }
 
     gpuErrchk(cudaDeviceSynchronize());
@@ -600,7 +658,11 @@ int main(int argc, const char * argv[])
       printf("Error opening output file.\n");
     }
     else{
-        fprintf(myfile, "Starting day by day output of simulation!\n\n");
+        fprintf(myfile, "Starting day by day output of simulation!\n");
+        fprintf(myfile, "Using the following parameters: \n");
+        fprintf(myfile, "Max number of agents: %lld\n", max_number_adult);
+        fprintf(myfile, "Number of simulated days: %d\n", max_number_days);
+        fprintf(myfile, "Starting with %d initial infected.\n\n", num_infected);
         for(int i=0; i<simulationDay; i++){
             output_to_file(myfile,dayUpdateList[i]);
         }
@@ -612,6 +674,7 @@ int main(int argc, const char * argv[])
     cudaFree(d_adultAgents);
     cudaFree(d_houseHolds);
     cudaFree(d_workPlaces);
+    cudaFree(d_communityPlaces);
     cudaFree(d_infected_individuals);
 
 
