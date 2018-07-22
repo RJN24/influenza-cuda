@@ -628,7 +628,7 @@ int main(int argc, const char * argv[])
     dim3 threads4(BLOCK_SIZE, 1, 1);
 
 
-    printf("Starting simulation!\n");
+    printf("Starting simulation for %d people over %d days.\n", max_number_adult, max_number_days);
     //run the simulation
     int simulationDay;
     cudaEventCreate(&start);
@@ -654,7 +654,7 @@ int main(int argc, const char * argv[])
     float elapsedTime;
     cudaEventElapsedTime( &elapsedTime, start, stop );
 
-    printf( "******** Total Running Time of Kernel = %0.5f ms \n", elapsedTime );
+    printf( "******** Total Running Time of Kernel = %0.5f ms ********\n", elapsedTime );
 
     //copy adults back to cpu
     //cudaMemcpy(adultAgents, d_adultAgents, sizeof(struct entity)*max_number_adult, cudaMemcpyDeviceToHost);
@@ -662,7 +662,6 @@ int main(int argc, const char * argv[])
 
     cudaMemcpyFromSymbol(&h_numberOfInfected, numberOfInfected, sizeof(unsigned long long), 0, cudaMemcpyDeviceToHost);
     // cudaMemcpy(&h_numberOfInfected, numberOfInfected, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
-    printf("the number of infected copied back %llu \n", h_numberOfInfected);
 
     // copy the day list back to cpu
     cudaMemcpy(dayUpdateList, d_dayUpdateList, sizeof(struct list_day_node)*max_number_days, cudaMemcpyDeviceToHost);
@@ -684,6 +683,7 @@ int main(int argc, const char * argv[])
         }
     }
     fclose(myfile);
+    printf("Check daily-output.txt for a day-by-day log of the simulation!\n");
 
     /* Clean up memory */
 
