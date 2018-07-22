@@ -282,6 +282,10 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
     int currentHour;
     double check_rand;
     register double cur_lambda=0.0;
+    int homeHours, workHours, comHours;
+    homeHours = 0;
+    workHours = 0;
+    comHours = 0;
 
     if( tid < dev_max_number_adult ){
 
@@ -336,9 +340,10 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 if  ( ( (weekDayStatus == 1) && (( currentHour>= 19 &&   currentHour<24) || ( currentHour>= 0 &&   currentHour< 8)) ) ||  ( (weekDayStatus == 0) && (( currentHour>= 0 &&   currentHour<17) || ( currentHour>= 19 &&   currentHour< 24)) ) ){
 
                     // check if anyone in the house is sick
-                    if( d_adultAgents[tid].status == 1){
+                    if( d_adultAgents[tid].status == 1 && homeHours == 0 ){
                         atomicAdd(&d_houseHolds[hid].hasInfected, 1); // add one infected there
                     }
+                    homeHours += 1;
 
                     // OLD LAMDA code
                     // for (j = 0; j < numberOfInfected; j++){
@@ -352,9 +357,10 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 else if ( (weekDayStatus == 1) && ( currentHour >= 8 && currentHour < 17 ) ){
 
                     // check if this is an infected thread, if so set the workplace to hasInfected
-                    if( d_adultAgents[tid].status == 1){
+                    if( d_adultAgents[tid].status == 1 && workHours == 0 ){
                         atomicAdd(&d_workPlaces[wid].hasInfected,1); // add one infected there
                     }
+                    workHours += 1;
 
                     // OLD LAMDA CODE
                     // for (int j = 0; j < numberOfInfected; j++){
@@ -373,9 +379,10 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                     communityId = check_rand; // this thread will be at this community
 
                     // check if this is an infected thread, if so set the communityPlace to infected
-                    if (d_adultAgents[tid].status == 1) {
+                    if (d_adultAgents[tid].status == 1 && comHours == 0 ) {
                         atomicAdd(&d_communityPlaces[communityId].hasInfected,1);
                     }
+                    comHours += 1;
 
                     // OLD LAMDA CODE
                     // float current_distance =0 ;
@@ -399,8 +406,8 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                     // calc our log_normal_distribution
                     check_rand = curand_log_normal(&state,-0.72,1.8);
                     // using equation from parameters file in google drive
-                    //cur_lambda = cur_lambda + ( (0.47*check_rand*2) / d_houseHolds[hid].type);
-                    cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) (1.72) )), 2.0) / 6.48) ) )* (2) ) / (pow((double)d_houseHolds[hid].type, 0.8)));
+                    cur_lambda = cur_lambda + ( (0.01958*homeHours*check_rand*2) / d_houseHolds[hid].type);
+                    //cur_lambda = cur_lambda + ((house_trans * ( 0.1255 * exp(- ( pow ((log((double) (1.72) )), 2.0) / 6.48) ) )* (2) ) / (pow((double)d_houseHolds[hid].type, 0.8)));
                 }
             }
 
@@ -410,7 +417,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                     check_rand = curand_log_normal(&state,-0.72,1.8);
                     //printf("thread %lld has distribution %f\n", tid, check_rand);
                     // using equation from parameters file in google drive
-                    cur_lambda = cur_lambda + ((0.47*check_rand) / d_workPlaces[wid].employeeNum);
+                    cur_lambda = cur_lambda + ((0.01958*workHours*check_rand) / d_workPlaces[wid].employeeNum);
                     //cur_lambda = cur_lambda + ( (place_trans * ( 0.1255 * exp(- ( pow ((log((double) ( 1.72) )), 2.0) / 6.48) ) ) * (( (2 * 0.5) -1)) ) / d_workPlaces [wid].employeeNum ) ;
                 }
             }
@@ -420,7 +427,7 @@ __global__ void kernel_calculate_contact_process(  unsigned long long  *d_infect
                 for( int x=0; x<d_communityPlaces[communityId].hasInfected; x++){
                     check_rand = curand_log_normal(&state,-0.72, 1.8);
                     // using equation from parameters file in google drive
-                    cur_lambda = cur_lambda + ((0.075*check_rand*2));
+                    cur_lambda = cur_lambda + ((0.003125*comHours*check_rand*2));
                     //cur_lambda = cur_lambda +  (1 * comm_trans * ( 0.1255 * exp(- ( pow ((log((double)(1.72) )), 2.0) / 6.48) ) ) * 2) ;
                 }
             }
